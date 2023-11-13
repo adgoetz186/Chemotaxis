@@ -111,28 +111,29 @@ base_vec = [0,0.0078125,0.015625,0.03125,0.0625,0.125,0.25,0.5,1,100]
 
 grad_dist = 1300
 grad_conc = 50
-grad_drop = grad_conc/grad_dist
+grad_drop = grad_conc/grad_dist/10
 grad_base = 0.03125
 print(grad_drop)
 
 
 
-DR = 0.025
+DR = 0.04
 DB = 0.025
 DP = 0.025
 D = np.array([DR,DB,DP])
 L = 20
 dx = .1
 dt = 0.5
-T_count = 8000
-T_stim = 4000
+T_count = 16000
+T_stim = 8000
 X = np.arange(0,L+dx,dx)
-l_min = 0.125
+l_min = 0.015625
 l_max = l_min+L*grad_drop
 
 shift_length = 10
 shift = grad_drop*shift_length*dx/2
 # k = [kprod,kdeg,kdegs,kbind,kunbind,kp,kdp,L]
+#kvec = 10**np.array([1.4,-3.6,-2.5,-1.81,-0.52,0.05,-1.15])
 kvec = 10**np.array([1.4,-3.6,-2.5,-1.81,-0.52,0.05,-1.15])
 # 10**5 = total cell receptor count
 kvec[0] /= (np.size(X))
@@ -158,4 +159,8 @@ for i in range(len(list_of_values)):
 	ax.set_yticks(np.arange(0,np.size(X),100))
 	ax.set_yticklabels(np.round(X[0::100],2))
 	ax.set_ylabel('X')
+	print(np.arange(0, np.size(results["t"])))
+	print(np.shape(np.transpose(results[list_of_values[i]])[0]))
+	plt.show()
+	plt.plot(np.arange(0, np.size(results["t"])),np.transpose(results[list_of_values[i]])[-1] - np.transpose(results[list_of_values[i]])[0])
 	plt.show()

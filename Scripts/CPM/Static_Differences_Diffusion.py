@@ -352,7 +352,7 @@ for grad_base in grad_bases:
 	
 	
 	#display_cell(initial_cell)
-	diffusion_matrix = {'R':0.0,'B':0.0,'P':0.0}
+	diffusion_matrix = {'R':0.025,'B':0.025,'P':0.025}
 	x_vals = []
 	y_vals = []
 	for i in range(10):
@@ -375,7 +375,7 @@ for grad_base in grad_bases:
 		A = time.time()
 		sim_points(Cell_df,sim_obj,dtf_dict,grad_drop,grad_base)
 		B = time.time()
-		#diffusion_step(Cell_df,diffusion_matrix)
+		diffusion_step(Cell_df,diffusion_matrix)
 		sims += Cell_df.shape[0]
 		C = time.time()
 		#print(Cell_df.shape[0])

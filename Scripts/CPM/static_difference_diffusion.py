@@ -3,6 +3,9 @@ import copy as cp
 import cython
 import matplotlib.pyplot as plt
 import time
+import sys
+import os
+from pathlib import Path
 
 import pysb.integrate
 
@@ -10,8 +13,6 @@ from Scripts.Models.Simple_Receptor import model
 from pysb.simulator import BngSimulator
 #import tensorflow as tf
 import pandas as pd
-
-print(np.ones((1000,1000)))
 
 def perimeter(cell_coords):
 	pari = 0
@@ -85,12 +86,10 @@ def energy_from_cell_coords(cell_coords,A0,lambda_val,alpha):
 	return L*alpha + lambda_val*(A0-A)**2
 
 def add_new_space(cell_points_no_POI,POI, species_levels):
-	#print("add")
 	index_vals = []
 	min_val = np.min(np.sum(np.abs(cell_points_no_POI - POI),axis=1))
 	if min_val != 1:
 		print("ADD: larger than normal distance, distance is: ",min_val)
-	#print(min_val)
 	for i in range(np.shape(cell_points_no_POI)[0]):
 		if np.sum(np.abs(POI - cell_points_no_POI[i])) == min_val:
 			index_vals.append(i)
@@ -105,47 +104,35 @@ def add_new_space(cell_points_no_POI,POI, species_levels):
 		print("zero_ind: ", zero_ind)
 		print("Cell Points: ", cell_points_with_POI)
 		print("species_levels: ", species_levels)
-	#print(cell_points)
+
 	return cell_points,species_levels
 
 
 def remove_space(cell_points_with_POI,POI, species_levels):
-	#print("remove")
 	index_vals = []
-	if np.shape(cell_points_with_POI)[0] == 1:
-		print("LOOK")
-		input()
 	min_val = np.min(np.sort(np.sum(np.abs(cell_points_with_POI - POI), axis=1))[1:])
 	if min_val != 1:
 		print("REM: larger than normal distance, distance is: ",min_val)
-	#print(min_val)
 	for i in range(np.shape(cell_points_with_POI)[0]):
 		if np.sum(np.abs(POI - cell_points_with_POI[i])) == min_val:
 			index_vals.append(i)
 	zero_ind = np.argmin(np.sum(np.abs(cell_points_with_POI - POI), axis=1))
 	update_val = species_levels[zero_ind]/len(index_vals)
-	if np.isnan(species_levels).any():
-		print("ind: ", len(index_vals))
-		print("update: ",update_val)
-		print("zero_ind: ",zero_ind)
-		print("Cell Points: ",cell_points_with_POI)
-		print("species_levels: ", species_levels)
 	species_levels[index_vals,:] += update_val
 	species_levels = np.delete(species_levels,zero_ind,axis=0)
 	cell_points = np.delete(cell_points_with_POI,zero_ind,axis=0)
-	if np.isnan(species_levels).any():
-		print("cell points 2: ", cell_points)
-		print("species_levels 2: ", species_levels)
 	if np.shape(cell_points_with_POI)[0] == 1:
 		print(cell_points)
 		input()
 	return cell_points,species_levels
-			
-			
+	
+	
 
 def single_copy_sim(cell_dtf,A0 = 100,lambda_val = 0.01,alpha = 2,buffer = 5):
 	# PLACEHOLDER
-	cell_coords = cell_dtf[["x_val", "y_val"]].to_numpy()
+	
+	cell_coords = cell_dtf[["x_val", "y_val"]].to_numpy().astype(int)
+	#display_cell(cell_coords, xrange=[-50, 50], yrange=[-50, 50])
 	species_list = cell_dtf.columns.to_list()
 	species_list.remove("x_val")
 	species_list.remove("y_val")
@@ -163,13 +150,10 @@ def single_copy_sim(cell_dtf,A0 = 100,lambda_val = 0.01,alpha = 2,buffer = 5):
 	p = np.array([0.0,0.0])
 	X_prev = np.array([0,0])
 	eta = 107
-	r = 0.01*0
+	r = 0.01
 	epsilon = 56
 	tau = 100
 	for point_val in points:
-
-		#print(point_val)
-		#print(cell_coords)
 		if np.shape(cell_coords)[0] != 0:
 			# is the selected point a cell
 			indexing_orig = np.where(np.all(cell_coords == point_val, axis=1))
@@ -179,7 +163,8 @@ def single_copy_sim(cell_dtf,A0 = 100,lambda_val = 0.01,alpha = 2,buffer = 5):
 			change_state_loc += point_val
 			indexing_new = np.where(np.all(cell_coords == change_state_loc, axis=1))
 			if len(indexing_new[0]) != len(indexing_orig[0]):
-				#display_cell(cell_coords,xrange=[-50,50],yrange=[-50,50])
+				#input()
+				
 				if len(indexing_orig[0]) == 1:
 					# the cell is attempting to grow
 					U_init = energy_from_cell_coords(cell_coords,A0,lambda_val,alpha)
@@ -238,7 +223,7 @@ def single_copy_sim(cell_dtf,A0 = 100,lambda_val = 0.01,alpha = 2,buffer = 5):
 		print("WARNING! CELL MOVEMENT HAS CAUSED SPECIES CHANGE")
 	return cell_dtf
 
-def sim_point(cell_dtf,coord,sim_obj,param_dict,grad_drop,grad_base):
+def sim_point(cell_dtf,coord,sim_obj,param_dict,grad_drop,grad_base,alt_dose = False):
 	# updates a single cells values using a deterministic solution
 	A = time.time()
 	point_df = cell_dtf.loc[(cell_dtf.x_val==coord[0]) & (cell_dtf.y_val==coord[1])]
@@ -246,17 +231,15 @@ def sim_point(cell_dtf,coord,sim_obj,param_dict,grad_drop,grad_base):
 	dict_val = dict(zip(["R_0", "B_0", "P_0"],point_df[["R_0", "B_0", "P_0"]].to_numpy()[0].tolist()))
 	param_dict.update(dict_val)
 	param_dict["kprod"] /= cell_dtf.shape[0]
+	if coord[0] ==9 and alt_dose:
+		grad_base+= grad_drop/2
 	param_dict["EGF"] = coord[0]*grad_drop+grad_base
-	#param_dict["EGF"] = 0
-	#print(param_dict["kprod"],cell_dtf.shape[0], 1)
-	#param_dict.update(point_df[["R_0","B_0","P_0"]])
+
 	B = time.time()
-	#print(param_dict.values())
 
 
 	sim_obj.run(param_values=param_dict)
 
-	#print(param_dict)
 	C = time.time()
 	#x = sim.run(n_runs=1, method='ode')
 	#y = ScipyOdeSimulator(model,tspan = t_vec, param_values = param_dict)
@@ -265,15 +248,14 @@ def sim_point(cell_dtf,coord,sim_obj,param_dict,grad_drop,grad_base):
 	cell_dtf.loc[(cell_dtf.x_val == coord[0]) & (cell_dtf.y_val == coord[1]),["R","B","P"]] = sim_obj.y[-1,:]
 	E = time.time()
 	param_dict["kprod"] *= cell_dtf.shape[0]
-	#print(param_dict["kprod"],2)
 	return np.array([B-A,C-B,D-C,E-D])
 	#results = results[["R_0", "B_0", 'P_0']].iloc[-1]
 	
-def sim_points(cell_dtf,sim_obj,param_dict,grad_drop,grad_base):
+def sim_points(cell_dtf,sim_obj,param_dict,grad_drop,grad_base,alt_dose = False):
 	clocks = np.zeros(4)
 	xy_points = cell_dtf[["x_val","y_val"]].to_numpy()
 	for point in xy_points:
-		clocks += sim_point(cell_dtf,point,sim_obj,cp.copy(param_dict),grad_drop,grad_base)
+		clocks += sim_point(cell_dtf,point,sim_obj,cp.copy(param_dict),grad_drop,grad_base,alt_dose = alt_dose)
 
 
 
@@ -289,186 +271,139 @@ def generate_connection_matrix(cell_dtf):
 		if np.sum(transition_matrix[point_ind_1] ) == 0:
 			transition_matrix[point_ind_1,point_ind_1] = 1
 		else:
-			transition_matrix[point_ind_1] /= np.sum(transition_matrix[point_ind_1] )
+			# Alternative, I think the other is right
+			# transition_matrix[point_ind_1] /= np.sum(transition_matrix[point_ind_1] )
+			transition_matrix[point_ind_1] /= 1
+	#print(np.alltrue(transition_matrix==transition_matrix.T))
 	return transition_matrix
-			
+	
 
 def diffusion_step(cell_dtf,diffusion_dict):
 	# generalize this to all species
+	DX = 2
+	# max allowed Dx
+
 	connection_matrix = generate_connection_matrix(cell_dtf)
 	for species in diffusion_dict.keys():
-		species_diffusion_mat = connection_matrix*diffusion_dict[species]
+		Dt = (1 / (4 * diffusion_dict[species]) * DX ** 4)
+		Dt = 10
+		if Dt > (1 / (4 * diffusion_dict[species]) * DX ** 4):
+			print("Timestep too large")
+			input()
+		diffusion_val = diffusion_dict[species]*Dt/DX**2
+		species_diffusion_mat = connection_matrix*diffusion_val
 		for point_ind_1 in range(np.shape(species_diffusion_mat)[0]):
-			species_diffusion_mat[point_ind_1,point_ind_1] = 1-diffusion_dict[species]
+			species_diffusion_mat[point_ind_1,point_ind_1] = 1-np.sum(species_diffusion_mat,axis=0)[point_ind_1]
 		new_vec = np.matmul(cell_dtf[species].to_numpy(),species_diffusion_mat)
 		cell_dtf[species] = new_vec
-		if np.isnan(new_vec).any():
-			print("error")
-			print(species_diffusion_mat)
-			print(new_vec)
-			print(connection_matrix)
-		
+	
+path_to_Chemotaxis = ""
+if path_to_Chemotaxis == "":
+	try:
+		# Obtains the location of the chemotaxis folder if it is in the cwd parents
+		path_to_Chemotaxis = Path.cwd().parents[
+			[Path.cwd().parents[i].parts[-1] for i in range(len(Path.cwd().parts) - 1)].index(
+				"Chemotaxis")]
+	except ValueError:
+		print("Chemotaxis not found in cwd parents, trying sys.path")
+		try:
+			# Obtains the location of the Cell_signaling_information folder if it is in sys.path
+			path_to_Chemotaxis = Path(sys.path[[Path(i).parts[-1] for i in sys.path].index("Chemotaxis")])
+		except ValueError:
+			print("Chemotaxis not found in sys.path "
+			      "consult 'Errors with setting working directory' in README")
+else:
+	path_to_Chemotaxis = Path(path_to_Chemotaxis)
+os.chdir(path_to_Chemotaxis)
 
 	
 
 # note calculation of area is just np.shape(cell_coords)[0]
 
 R0 = 300000
-L = [0,0.0078125,0.015625,0.03125,0.0625,0.125,0.25,0.5,1,100]
-D = 0
+L = [0,0.0078125,0.015625,0.03125,0.0625,0.125,0.25,0.5,1]
+
 
 grad_dist = 1300
 units_of_grid = 2
 grad_conc = 50
-print(grad_conc/grad_dist/10)
-print(np.log10(grad_conc/grad_dist/10))
+grad_drop = grad_conc/grad_dist*units_of_grid/10
+grad_base = 0.03125
+print(grad_drop)
 
-grad_drop = grad_conc/grad_dist*units_of_grid/100
-grad_base = 0.125
-grad_bases = [0,0.0078125,0.015625,0.03125,0.0625,0.125,0.25,0.5,1]
-min_val = []
-max_val = []
-dist_val = []
-for grad_base in grad_bases:
-	print(grad_drop)
-	
-	
-	
-	# natural surface area of cell
-	A0 = 100
-	
-	# maximum surface area of the cell
-	Amax = 20
-	
-	# fluctuation energy cost
-	l = 2
-	
-	# Adhesion energy
-	alpha = 15
-	
-	initial_cell = np.array([[0,0],[0,1],[1,0]])
-	exterior_filled = []
-	exterior_empty = []
-	
-	
-	#display_cell(initial_cell)
-	diffusion_matrix = {'R':0.0,'B':0.0,'P':0.0}
-	x_vals = []
-	y_vals = []
-	for i in range(10):
-		x_vals.append(i)
-		y_vals.append(0)
-	Cell_df = pd.DataFrame({'x_val':x_vals,'y_val':y_vals,"R":[0 for i in range(len(x_vals))],"B":[0 for i in range(len(x_vals))],"P":[0 for i in range(len(x_vals))]})
-	t_main = np.linspace(0,100,10)
-	dtf_dict = {'kprod':0.05876103899761891/0.00122,'kbind':0.01625578123538074,'kunbind': 0.39307675090835553,'krp':0.4777926053914779,'krdp':0.04702130222751365,'kdeg':0.000329582245342056,'ksdeg':0.0010486403956587256,'R_0':0,'B_0':0,'P_0':0,'EGF':1}
-	#print(Cell_df)
-	#print(dtf_dict['kprod']/dtf_dict['kdeg'])
-	
-	AZ = time.time()
-	sims = 0
-	sim_obj = pysb.integrate.Solver(model, tspan=t_main)
-	# 400
+
+
+# natural surface area of cell
+A0 = 100
+
+# maximum surface area of the cell
+Amax = 20
+
+# fluctuation energy cost
+l = 2
+
+# Adhesion energy
+alpha = 15
+
+#display_cell(initial_cell)
+diffusion_matrix = {'R':0.025,'B':0.025,'P':0.025}
+x_vals = []
+y_vals = []
+for i in range(10):
+	x_vals.append(i)
+	y_vals.append(0)
+
+dtf_dict = {'kprod':0.05876103899761891/0.00122,'kbind':0.01625578123538074,'kunbind': 0.39307675090835553,'krp':0.4777926053914779,'krdp':0.04702130222751365,'kdeg':0.000329582245342056,'ksdeg':0.0010486403956587256,'R_0':0,'B_0':0,'P_0':0,'EGF':1}
+AZ = time.time()
+sims = 0
+t_main = np.linspace(0,10,10)
+sim_obj = pysb.integrate.Solver(model, tspan=t_main,compiler='cython')
+#sim_obj = pysb.simulator.ScipyOdeSimulator(model, tspan=t_main)
+distance_val = []
+for L_ind in range(len(L)):
+	Cell_df = pd.DataFrame({'x_val': x_vals, 'y_val': y_vals, "R": [dtf_dict['kprod']/len(x_vals) for i in range(len(x_vals))],
+	                        "B": [0.0 for i in range(len(x_vals))], "P": [0.0 for i in range(len(x_vals))]})
+	cnt = 0
+	trajectories_9 = np.zeros((400, 3))
+	trajectories_0 = np.zeros((400, 3))
 	for repeat in range(400):
-		print(repeat,grad_base)
+		
 		Z = time.time()
 		#Cell_df = single_copy_sim(Cell_df)
-		A = time.time()
-		sim_points(Cell_df,sim_obj,dtf_dict,grad_drop,grad_base)
-		B = time.time()
-		#diffusion_step(Cell_df,diffusion_matrix)
+		Z = time.time()
+		#print(Cell_df)
+		A_sum = 0
+		B_sum = 0
+		for i in range(10):
+			cnt+=1
+			sim_points(Cell_df,sim_obj,dtf_dict,grad_drop,L[L_ind],alt_dose = (repeat>200))
+			diffusion_step(Cell_df,diffusion_matrix)
 		sims += Cell_df.shape[0]
 		C = time.time()
-		#print(Cell_df.shape[0])
-		#print(np.sum(Cell_df[["R"]].to_numpy()))
-		#print(np.average(Cell_df[["x_val","y_val"]].to_numpy(),axis=0))
-		
-		#print((A-Z)/(C-Z),(B-A)/(C-Z),(C-B)/(C-Z))
-		#print((-1*(AZ-time.time())/(sims)))
-	min_val.append(Cell_df[["P"]].to_numpy()[0])
-	max_val.append(Cell_df[["P"]].to_numpy()[-1])
-	dist_val.append((Cell_df[["P"]].to_numpy()[-1]-Cell_df[["P"]].to_numpy()[0])/np.sqrt(Cell_df[["P"]].to_numpy()[-1]))
-plt_values = np.array(cp.copy(grad_bases))
-plt_values[0] = 0.001
-plt.scatter(np.log10(plt_values),min_val)
-plt.scatter(np.log10(plt_values),max_val)
-plt.ylabel("P")
-plt.xlabel(f"Baseline ng/mL (log)")
-plt.title(f"gradient: {np.round(np.log10(grad_drop/units_of_grid),2)} ng/mL/$\mu$m")
-plt.show()
-plt.ylabel("Range normalized by sqrt max")
-plt.xlabel(f"Baseline ng/mL (log)")
-plt.title(f"gradient: {np.round(np.log10(grad_drop/units_of_grid),2)} ng/mL/$\mu$m")
-plt.scatter(np.log10(plt_values),dist_val)
-plt.show()
-#print(dtf_dict)
-print(time.time()-AZ)
-input()
-sim = BngSimulator(model, tspan=t_main,param_values=dtf_dict)
-print(dtf_dict)
-
-# This initializes the model it is not a bottleneck, but could be made more efficient
-print(model.species)
-x = sim.run(n_runs=1, method='ode')
-print(x.dataframe)
-print(x.species)
-results = x.dataframe.rename(columns={"obs_R": "R_0", "obs_B": "B_0","obs_P":"P_0"})
-results = results[["R_0","B_0",'P_0']].iloc[-1]
-
-print(results)
-dtf_dict.update(results)
-sim = BngSimulator(model, tspan=t_main,param_values=dtf_dict)
-print(dtf_dict)
-# This initializes the model it is not a bottleneck, but could be made more efficient
-print(model.species)
-x = sim.run(n_runs=1, method='ode')
-print(dtf_dict)
-print(x.dataframe)
-input()
-#x = sim.run(n_runs=1, method='ode', initials=initial_row[1:4])
-#x = sim.run(n_runs=1, method='pla',initials = state)
-print(Cell_df)
-input()
-#border_points = generate_internal_external(initial_cell)
-#print(border_points)
-traj = np.zeros((1,16000))
-xcom = np.zeros((1,16000))
-ycom = np.zeros((1,16000))
-start = time.time()
-for i in range(400):
-	#single_copy_sim_bp(initial_cell,border_points[1],border_points[0])
-	initial_cell = single_copy_sim(initial_cell)
-	print(i)
-	print(np.shape(initial_cell)[0])
-print(time.time()-start)
-input()
-# Make sure you are able to handle situations where single pixel dissapears maybe migrate to nearest cell
-plt.plot(np.arange(16000),np.average(xcom,axis=0))
-plt.plot(np.arange(16000),np.average(ycom,axis=0))
-plt.show()
-plt.plot(np.arange(16000),np.average(traj,axis=0))
-plt.show()
-vec_size = 100
-vec = np.zeros(vec_size)
-transport_vec = np.eye(vec_size-1)
-print(transport_vec)
-transport_vec_low = np.vstack((np.zeros(vec_size-1),transport_vec))
-transport_vec_low = np.hstack((transport_vec_low,np.zeros((vec_size,1))))
-transport_vec_low = (transport_vec_low + transport_vec_low.T)/2
-vec[3] = 1
-print(transport_vec_low)
-transport_vec_low[0,1] = 0
-transport_vec_low[0,0] = 1
-print(transport_vec_low)
-print(np.matmul(vec,transport_vec_low))
-
-# Cell square database
-
-
-for i in range(160):
-	plt.bar(np.arange(vec_size-1)-.25,np.histogram(traj[:, i], bins=np.arange(vec_size))[0] / 10000,width=.5)
-	vec = np.matmul(vec,transport_vec_low)
-	print(i)
-	plt.bar(np.arange(vec_size-1)+.25,vec[:-1],width=.5)
-	plt.show()
-plt.plot(np.arange(16),np.average(traj,axis=0))
+		print(repeat)
+		print(Cell_df[["R","B","P"]].to_numpy())
+		trajectories_0[repeat] = Cell_df[["R","B","P"]].to_numpy()[0]
+		trajectories_9[repeat] = Cell_df[["R", "B", "P"]].to_numpy()[-1]
+	trajectories = np.vstack((trajectories_9[:,-1],trajectories_0[:,-1])).T
+	print(trajectories)
+	print()
+	max_traj = np.max(trajectories,axis=1)
+	print(max_traj)
+	plt.plot(np.arange(400)*100/60,(trajectories_9[:,-1]-trajectories_0[:,-1]))
+	plt.xlabel("time (min)")
+	plt.title(f"base: {np.round(np.log10(L[L_ind]),2)}\ngradient: {np.round(np.log10(grad_drop/units_of_grid),2)}")
+	plt.ylabel('range')
+	plt.savefig(f"figures/L_base_{L_ind}")
+	plt.clf()
+	distance_val.append(np.max(((trajectories_9[:,-1]-trajectories_0[:,-1])/np.sqrt(max_traj))[200:]))
+	#plt.scatter(np.arange(400) * 100 / 60, (trajectories_0[:, -1]),label = "x = 0")
+	#plt.scatter(np.arange(400) * 100 / 60, (trajectories_9[:, -1] ),label = "x = 20 um")
+	#plt.xlabel("time (min)")
+	#plt.title(f"base: {np.round(np.log10(L[L_ind]), 2)}\ngradient: {np.round(np.log10(grad_drop / units_of_grid), 2)}")
+	#plt.ylabel('range normalized by sqrt max')
+	#plt.show()
+plt.plot(np.array(L),distance_val)
+plt.xscale('log')
+plt.xlabel("Baseline ng/mL")
+plt.ylabel("max range (after local excitation)\nnormalized by sqrt max")
 plt.show()
